@@ -1,0 +1,65 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ book.title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .book-img {
+            max-width: 300px;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body>
+<div class="container my-4">
+    <a href="{% url 'book_list' %}" class="btn btn-secondary mb-3">&laquo; Back to list</a>
+
+    <div class="row">
+        <div class="col-md-4">
+            {% if book.image_url %}
+                <img src="{{ book.image_url }}" alt="{{ book.title }}" class="book-img img-fluid mb-3">
+            {% else %}
+                <img src="{% static 'images/no_image.png' %}" class="book-img img-fluid mb-3" alt="No image">
+            {% endif %}
+        </div>
+
+        <div class="col-md-8">
+            <h1>{{ book.title }}</h1>
+            <p><strong>ISBN:</strong> {{ book.isbn }}</p>
+            <p><strong>Authors:</strong>
+                {% for author in book.author.all %}
+                    {{ author.author_name }}{% if not forloop.last %}, {% endif %}
+                {% empty %}
+                    Unknown
+                {% endfor %}
+            </p>
+            <p><strong>Publishers:</strong>
+                {% for publisher in book.publisher.all %}
+                    {{ publisher.publisher_name }}{% if not forloop.last %}, {% endif %}
+                {% empty %}
+                    Unknown
+                {% endfor %}
+            </p>
+            <p><strong>Genres:</strong>
+                {% for genre in book.genres.all %}
+                    {{ genre.gener_name }}{% if not forloop.last %}, {% endif %}
+                {% empty %}
+                    Unknown
+                {% endfor %}
+            </p>
+            <p><strong>Page count:</strong> {{ book.page_count|default:"N/A" }}</p>
+            <p><strong>Weight:</strong> {{ book.weight|default:"N/A" }} г</p>
+            <p><strong>Size:</strong> {{ book.size|default:"N/A" }}</p>
+            <p><strong>Age limit:</strong> {{ book.age_limit|default:"N/A" }}</p>
+            <p><strong>Price:</strong> ${{ book.price|default:"N/A" }}</p>
+            <p><strong>Description:</strong></p>
+            <p>{{ book.description|default:"No description available." }}</p>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

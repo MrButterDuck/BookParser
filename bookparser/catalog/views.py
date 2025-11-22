@@ -1,53 +1,58 @@
 import json
-import time
-import asyncio
-from django.http import StreamingHttpResponse
+from multiprocessing import Process
+from django.http import JsonResponse
 from django.contrib.admin.views.decorators import staff_member_required
-from .parser import get_product_urls, get_info
-from .models import Product
-
-# Асинхронная функция, которая возвращает словарь
-
-    
+from django.shortcuts import render, get_object_or_404
+from django.core.paginator import Paginator
+from .parser import parser_worker
+from .models import Book
 
 @staff_member_required
 def admin_global_action(request):
     if request.method != "POST":
-        return StreamingHttpResponse("Неверный метод.", content_type="text/plain")
+        return JsonResponse({"error": "Неверный метод"}, status=400)
 
     try:
         data = json.loads(request.body)
         page_count = int(data.get("value", 0))
+        sites = data.get("sites", [])
     except Exception:
-        return StreamingHttpResponse("Ошибка: некорректные данные.", content_type="text/plain")
+        return JsonResponse({"error": "Некорректные данные"}, status=400)
 
     if not (1 <= page_count <= 1000):
-        return StreamingHttpResponse("Ошибка: число вне диапазона.", content_type="text/plain")
+        return JsonResponse({"error": "Число вне диапазона"}, status=400)
+    
+    if not sites:
+        return JsonResponse({"error": "Ни один сайт не выбран"}, status=400)
 
-    def event_stream():
-        yield "Старт обработки...\n"
-        for page in range(1, page_count+1):
-            prod_urls = get_product_urls("https://www.chitai-gorod.ru/catalog/books-18030?page=")
-            print(prod_urls)
-            if not prod_urls:
-                return None
-            yield f"Готово {len(prod_urls)} для обряботки с {page} страници\n"
-            for url in prod_urls:
-                prod_info = get_info('https://www.chitai-gorod.ru'+url)
-                if not prod_info.get('ISBN'):
-                    continue
-                obj, created = Product.objects.get_or_create(isbn=prod_info["ISBN"])
-                print(created)
-                for field, value in prod_info.items():
-                    if field in ("ISBN", "Publisher"):
-                        continue 
-                    current_value = getattr(obj, field.lower(), None)
-                    if current_value is None and value is not None:
-                        setattr(obj, field.lower(), value)
+    json_resp = {'status': '', 'pid': []}
+    if '1' in sites:
+        p1 = Process(target=parser_worker, args=(page_count, "https://www.chitai-gorod.ru", "https://www.chitai-gorod.ru/catalog/books-18030?page="))
+        p1.start()
+        json_resp["status"] += "Parser Chitay-Gorod launched \n"
+        json_resp["pid"].append(p1.pid)
+    if '2' in sites:
+        p2 = Process(target=parser_worker, args=(page_count, "https://www.labirint.ru", "https://www.labirint.ru/books/?page="))
+        p2.start()
+        json_resp["status"] += "Parser Labirint launched \n"
+        json_resp["pid"].append(p2.pid)
+    if '3' in sites:
+        p3 = Process(target=parser_worker, args=(page_count, "https://book24.ru", "https://book24.ru/catalog/page-"))
+        p3.start()
+        json_resp["status"] += "Parser book24 launched \n"
+        json_resp["pid"].append(p3.pid)
 
-                obj.save()
-                yield f"Объект {prod_info['ISBN']} обновлен\n"
+    return JsonResponse(json_resp)
 
-        yield "Готово! 🎉\n"
+def book_list(request):
+    book_list = Book.objects.prefetch_related('author').all()
+    paginator = Paginator(book_list, 100)
 
-    return StreamingHttpResponse(event_stream(), content_type="text/plain")
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'books/book_list.html', {'page_obj': page_obj})
+
+def book_detail(request, isbn):
+    book = get_object_or_404(Book.objects.prefetch_related('author', 'publisher', 'genres'), isbn=isbn)
+    return render(request, 'books/book_detail.html', {'book': book})

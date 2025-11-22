@@ -2,86 +2,88 @@
 
 {% block content %}
 
-    <!-- Блок формы -->
-    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 6px; background: #f9f9f9;">
+<div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 6px;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-
-            <!-- Поле ввода числа -->
             <input id="ajax-value"
                    type="number"
                    min="1"
                    max="1000"
-                   placeholder="Введите число"
+                   placeholder="Число страниц парсинца"
                    style="width: 150px; padding: 6px 8px; border: 1px solid #bbb; border-radius: 4px;">
 
-            <!-- Кнопка -->
-            <button id="ajax-button"
-                    class="button"
-                    style="padding: 8px 16px;">
-                🚀 Выполнить
-            </button>
+            <button id="ajax-button" class="button" style="padding: 8px 16px;">Запустить парсер</button>
+        </div>
+
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <label><input type="checkbox" name="site" value=1> Читай-город</label>
+            <label><input type="checkbox" name="site" value=2> Лабиринг</label>
+            <label><input type="checkbox" name="site" value=3> book24</label>
         </div>
     </div>
+</div>
+<div id="status-box" style="margin-bottom: 20px; padding: 10px; background: #eef5ff; border-left: 4px solid #417690;">
+    <p id="status-text" style="margin: 0; color: #2a3f54;"></p>
+</div>
 
-    <!-- Строка состояния -->
-    <div id="status-box"
-         style="margin-bottom: 20px; padding: 10px; background: #eef5ff; border-left: 4px solid #417690;">
-        <p id="status-text" style="margin: 0; color: #2a3f54;"></p>
-    </div>
+{{ block.super }}
 
-    {{ block.super }}
+<script>
+const button = document.getElementById("ajax-button");
+const input = document.getElementById("ajax-value");
+const statusBox = document.getElementById("status-box");
+const statusText = document.getElementById("status-text");
 
-    <!-- JavaScript -->
-    <script>
-        const button = document.getElementById("ajax-button");
-        const input = document.getElementById("ajax-value");
-        const statusBox = document.getElementById("status-box");
-        const statusText = document.getElementById("status-text");
+function updateStatus(txt) {
+    statusText.innerText = txt;
+    statusBox.style.display = "block";
+}
 
-        function updateStatus(txt) {
-            statusText.innerText = txt;
-            statusBox.style.display = "block";
+button.addEventListener("click", async () => {
+    const value = input.value;
+    if (!value || value < 1 || value > 1000) {
+        updateStatus("Ошибка: введите число от 1 до 1000");
+        return;
+    }
+
+    // Получаем выбранные сайты
+    const checkboxes = document.querySelectorAll('input[name="site"]:checked');
+    const sites = Array.from(checkboxes).map(cb => cb.value);
+    if (sites.length === 0) {
+        updateStatus("Ошибка: выберите хотя бы один сайт");
+        return;
+    }
+
+    updateStatus("Отправка запроса...");
+
+    try {
+        const response = await fetch("{% url 'admin_custom_global_action' %}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}",
+            },
+            body: JSON.stringify({value: value, sites: sites})
+        });
+
+        if (!response.ok) {
+            updateStatus("Ошибка сервера: " + response.status);
+            return;
         }
 
-        button.addEventListener("click", async () => {
-            const value = input.value;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
 
-            if (!value || value < 1 || value > 1000) {
-                updateStatus("Ошибка: введите число от 1 до 1000");
-                return;
-            }
+        while (true) {
+            const {value, done} = await reader.read();
+            if (done) break;
+            updateStatus(decoder.decode(value));
+        }
 
-            updateStatus("Отправка запроса...");
-
-            try {
-                const response = await fetch("{% url 'admin_custom_global_action' %}", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-CSRFToken": "{{ csrf_token }}",
-                    },
-                    body: JSON.stringify({value: value})
-                });
-
-                if (!response.ok) {
-                    updateStatus("Ошибка сервера: " + response.status);
-                    return;
-                }
-
-                // Получаем потоковые обновления статуса
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-
-                while (true) {
-                    const {value, done} = await reader.read();
-                    if (done) break;
-                    updateStatus(decoder.decode(value));
-                }
-
-            } catch (error) {
-                updateStatus("Ошибка соединения");
-            }
-        });
-    </script>
+    } catch (error) {
+        updateStatus("Ошибка соединения");
+    }
+});
+</script>
 
 {% endblock %}
