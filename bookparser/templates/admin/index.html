@@ -25,8 +25,39 @@
 <div id="status-box" style="margin-bottom: 20px; padding: 10px; background: #eef5ff; border-left: 4px solid #417690;">
     <p id="status-text" style="margin: 0; color: #2a3f54;"></p>
 </div>
+<div id="status-box" style="margin-bottom: 20px; padding: 10px; background: #eef5ff; border-left: 4px solid #417690;">
+    <p id="status-text" style="margin: 0; color: #2a3f54;">Общий статус</p>
+    <div id="proc-1" class="proc-line">
+        <span class="proc-circle" id="circle-1"></span>
+        <span class="proc-text">Читай-город: ожидание</span>
+    </div>
+    <div id="proc-2" class="proc-line">
+        <span class="proc-circle" id="circle-2"></span>
+        <span class="proc-text">Лабиринг: ожидание</span>
+    </div>
+    <div id="proc-3" class="proc-line">
+        <span class="proc-circle" id="circle-3"></span>
+        <span class="proc-text">book24: ожидание</span>
+    </div>
+</div>
 
 {{ block.super }}
+
+<style>
+.proc-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  color: #2a3f54;
+}
+.proc-circle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: gray;
+}
+</style>
 
 <script>
 const button = document.getElementById("ajax-button");
@@ -39,6 +70,33 @@ function updateStatus(txt) {
     statusBox.style.display = "block";
 }
 
+function updateProcess(procId, proceName, status, message) {
+    const textEl = document.querySelector("#proc-" + procId + " .proc-text");
+    const circleEl = document.getElementById("circle-" + procId);
+
+    if (textEl) textEl.innerHTML = proceName + ": " + message;
+
+    if (circleEl) {
+        switch (status) {
+            case "started":
+                circleEl.style.background = "blue"; 
+                break;
+            case "running":
+                circleEl.style.background = "orange";
+                break;
+            case "done":
+                circleEl.style.background = "green"; 
+                break;
+            case "error":
+                circleEl.style.background = "red";  
+                break;
+            default:
+                circleEl.style.background = "gray"; 
+        }
+    }
+}
+
+
 button.addEventListener("click", async () => {
     const value = input.value;
     if (!value || value < 1 || value > 1000) {
@@ -46,7 +104,6 @@ button.addEventListener("click", async () => {
         return;
     }
 
-    // Получаем выбранные сайты
     const checkboxes = document.querySelectorAll('input[name="site"]:checked');
     const sites = Array.from(checkboxes).map(cb => cb.value);
     if (sites.length === 0) {
@@ -84,6 +141,19 @@ button.addEventListener("click", async () => {
         updateStatus("Ошибка соединения");
     }
 });
+setInterval(async () => {
+    try {
+        const response = await fetch("/status/worker-status/");
+        if (!response.ok) return;
+        const data = await response.json();
+        console.log(data);
+        Object.entries(data).forEach(([id, st]) => {
+            updateProcess(id, st.name, st.status, st.message);
+        });
+    } catch (e) {
+        console.log("Ошибка получения статусов", e);
+    }
+}, 2000);
 </script>
 
 {% endblock %}

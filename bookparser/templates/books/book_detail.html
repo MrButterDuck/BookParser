@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang=ru">
 <head>
     <meta charset="UTF-8">
     <title>{{ book.title }}</title>
@@ -14,7 +14,7 @@
 </head>
 <body>
 <div class="container my-4">
-    <a href="{% url 'book_list' %}" class="btn btn-secondary mb-3">&laquo; Back to list</a>
+    <a href="{% url 'book_list' %}" class="btn btn-secondary mb-3">&laquo; Вернуться к списку</a>
 
     <div class="row">
         <div class="col-md-4">
@@ -28,34 +28,52 @@
         <div class="col-md-8">
             <h1>{{ book.title }}</h1>
             <p><strong>ISBN:</strong> {{ book.isbn }}</p>
-            <p><strong>Authors:</strong>
+            <p><strong>Авторство:</strong>
                 {% for author in book.author.all %}
                     {{ author.author_name }}{% if not forloop.last %}, {% endif %}
                 {% empty %}
-                    Unknown
+                    Неизвестный автор
                 {% endfor %}
             </p>
-            <p><strong>Publishers:</strong>
+            <p><strong>Издательство:</strong>
                 {% for publisher in book.publisher.all %}
                     {{ publisher.publisher_name }}{% if not forloop.last %}, {% endif %}
                 {% empty %}
-                    Unknown
+                    Нет данных
                 {% endfor %}
             </p>
-            <p><strong>Genres:</strong>
+            <p><strong>Жанры:</strong>
                 {% for genre in book.genres.all %}
                     {{ genre.gener_name }}{% if not forloop.last %}, {% endif %}
                 {% empty %}
-                    Unknown
+                    Нет данных
                 {% endfor %}
             </p>
-            <p><strong>Page count:</strong> {{ book.page_count|default:"N/A" }}</p>
-            <p><strong>Weight:</strong> {{ book.weight|default:"N/A" }} г</p>
-            <p><strong>Size:</strong> {{ book.size|default:"N/A" }}</p>
-            <p><strong>Age limit:</strong> {{ book.age_limit|default:"N/A" }}</p>
-            <p><strong>Price:</strong> ${{ book.price|default:"N/A" }}</p>
-            <p><strong>Description:</strong></p>
-            <p>{{ book.description|default:"No description available." }}</p>
+            <p><strong>Страниц:</strong> {{ book.page_count|default:"Нет данных" }}</p>
+            <p><strong>Вес(г):</strong> {{ book.weight|default:"Нет данных" }}</p>
+            <p><strong>Размер:</strong> {{ book.size|default:"Нет данных" }}</p>
+            <p><strong>Возрастное ограничение:</strong> {{ book.age_limit|default:"Нет данных" }}</p>
+            <p><strong>Цена:</strong> ${{ book.price|default:"Нет данных" }}</p>
+            <p><strong>Описание:</strong></p>
+            <p>{{ book.description|default:"Описание не найдено" }}</p>
+            <p><strong>Доступна по следующим ссылкам:</strong>
+                {% if book.websourcebook_set.all %}
+                    <ul class="list-unstyled">
+                        {% for src in book.websourcebook_set.all %}
+                            <li class="mb-1">
+                                <a href="{{ src.url }}" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                class="text-primary">
+                                    {{ src.url }}
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted">Нет дополнительных источников.</p>
+                {% endif %}
+            </p>
         </div>
     </div>
 </div>

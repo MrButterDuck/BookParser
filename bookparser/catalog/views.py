@@ -1,11 +1,30 @@
 import json
 from multiprocessing import Process
 from django.http import JsonResponse
+from django.db.models import Count
 from django.contrib.admin.views.decorators import staff_member_required
+from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render, get_object_or_404
 from django.core.paginator import Paginator
 from .parser import parser_worker
 from .models import Book
+
+WORKER_STATUSES = {}
+
+@csrf_exempt
+def worker_status(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
+        worker_id = data.get("worker_id")
+        worker_name = data.get("worker_name")
+        status = data.get("status")
+        message = data.get("message", "")
+        WORKER_STATUSES[worker_id] = {"name": worker_name, "status": status, "message": message}
+        return JsonResponse({"ok": True})
+    elif request.method == "GET":
+        return JsonResponse(WORKER_STATUSES)
+    else:
+        return JsonResponse({"error": "invalid method"}, status=405)
 
 @staff_member_required
 def admin_global_action(request):
@@ -45,7 +64,7 @@ def admin_global_action(request):
     return JsonResponse(json_resp)
 
 def book_list(request):
-    book_list = Book.objects.prefetch_related('author').all()
+    book_list = Book.objects.prefetch_related('author').all().annotate(link_count=Count('websourcebook'))
     paginator = Paginator(book_list, 100)
 
     page_number = request.GET.get('page')
@@ -54,5 +73,5 @@ def book_list(request):
     return render(request, 'books/book_list.html', {'page_obj': page_obj})
 
 def book_detail(request, isbn):
-    book = get_object_or_404(Book.objects.prefetch_related('author', 'publisher', 'genres'), isbn=isbn)
+    book = get_object_or_404(Book.objects.prefetch_related('author', 'publisher', 'genres', 'websourcebook_set'), isbn=isbn)
     return render(request, 'books/book_detail.html', {'book': book})

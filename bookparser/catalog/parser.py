@@ -1,11 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import re
-from .models import Book, Author, Publisher, Genre
-
-URL_1 = "https://www.chitai-gorod.ru/catalog/books-18030?page="
-URL_2 = "https://www.labirint.ru/books/?page="
-URL_3 = "https://book24.ru/catalog/page-"
+from .models import Book, Author, Publisher, Genre, WebsourceBook
+from django import db
 
  #Читай Город без хедера 403 выбрасывает
 headers = {
@@ -58,7 +55,7 @@ field_altnames = {
     ],
     "Genres": [
         "жанры",
-        "раздел"
+        "раздел",
     ],
     "Author": [
         "автор",
@@ -105,6 +102,7 @@ def _append_if_found(parsed, class_name, prefix, target_list):
     if elem:
         target_list.append(f'{prefix}{elem.get_text()}')
 
+
 def get_product_urls(url: str):
     card_class_names = [
         'product-card__image-holder',
@@ -122,7 +120,8 @@ def _extract_common_info(parsed_text, info_class_name):
     info = parsed_text.find_all(class_=info_class_name[0])
     if not info:
         return None
-    raw_info = [i.get_text() for i in info]
+    raw_info = [i.get_text(separator=" ", strip=True) for i in info]
+    print(raw_info)
     raw_info.append(f'Наименование: {parsed_text.find("h1").get_text()}')
     author = parsed_text.find(class_='product-authors')
     if author:
@@ -131,7 +130,7 @@ def _extract_common_info(parsed_text, info_class_name):
     if image:
         img_url = image.get('src')
         if img_url.startswith('http'):
-            img_url = img_url[:]
+            img_url = img_url[6:]
         raw_info.append(f'Изображение_обложки {img_url}')
     _append_if_found(parsed_text, info_class_name[1], 'Описание: ', raw_info)
     _append_if_found(parsed_text, info_class_name[2], 'Цена: ', raw_info)
@@ -156,7 +155,7 @@ def _process_value(field, value):
         return value.replace('-', '')
     if field == 'Weight':
         return re.sub(r"\D", " ", value.replace('.', ''))
-    if field in ('Page_count', 'Weight', 'Size', 'Price', 'Year'):
+    if field in ('Page_count', 'Weight', 'Price', 'Year'):
         if '.' in value:
             return re.sub(r"\D", "", value) + '0'
         return re.sub(r"\D", "", value)
@@ -172,7 +171,7 @@ def get_info(url: str):
         low = norm_line.lower()
         for field, alts in field_altnames_norm.items():
             for alt in alts:
-                if low.startswith(alt):
+                if re.match(rf"^{re.escape(alt)}(?=$|[ :])", low):
                     value = norm_line[len(alt):].strip(" :—-")
                     value = _process_value(field, value)
                     cleared_info[field] = value
@@ -182,49 +181,82 @@ def get_info(url: str):
             break
     return cleared_info
 
+def worker_status(base_url, status, message):
+    if "chitai-gorod" in base_url:
+        requests.post("http://localhost:8000/status/worker-status/",
+                  json={"worker_id": 1, 
+                        "worker_name": "Читай-город",
+                        "status": status,
+                        "message": message})
+    elif "labirint" in base_url:
+        requests.post("http://localhost:8000/status/worker-status/",
+                  json={"worker_id": 2, 
+                        "worker_name": "Лабиринт",
+                        "status": status,
+                        "message": message})
+    elif "book24" in base_url:
+        requests.post("http://localhost:8000/status/worker-status/",
+                    json={"worker_id": 3, 
+                            "worker_name": "book24",
+                            "status": status,
+                            "message": message})
+
 
 def parser_worker(page_count, base_url, list_url):
+    db.close_old_connections()
+    worker_status(base_url, "started", "started")
     for page in range(1, page_count + 1):
-        url_list = get_product_urls(list_url + str(page))
-        for url in url_list:
-            info = get_info(base_url + url)
-            if not info or not info.get("ISBN"):
-                continue
+        try:
+            url_list = get_product_urls(list_url + str(page))
+            for url in url_list:
+                info = get_info(base_url + url)
+                if not info or not info.get("ISBN"):
+                    worker_status(base_url, "running", f'<a href="{base_url+url}" target="_blank">Книга без ISBN</a>')
+                    continue 
+                obj, created = Book.objects.get_or_create(isbn=info["ISBN"])
+                print(f'Book created: {base_url+ url}')
+                if created:
+                    worker_status(base_url, "running", f'<a href="{base_url+url}" target="_blank">Книга успешно создана {base_url+url}</a>')
+                else:
+                    worker_status(base_url, "running", f'<a href="{base_url+url}" target="_blank">Книга готова к обновлению данных {base_url+url}</a>')
+                for field, value in info.items():
+                    if field in ("ISBN", "Author", "Publisher", "Genres"):
+                        continue
+                    current_value = getattr(obj, field.lower(), None)
+                    if current_value is None and value is not None:
+                        setattr(obj, field.lower(), value)
 
-            obj, created = Book.objects.get_or_create(isbn=info["ISBN"])
-            print(f'Book created: {base_url+ url}')
-            for field, value in info.items():
-                if field in ("ISBN", "Author", "Publisher", "Genres"):
-                    continue
-                current_value = getattr(obj, field.lower(), None)
-                if current_value is None and value is not None:
-                    setattr(obj, field.lower(), value)
+                author_name = info.get("Author")
+                if author_name:
+                    author_objs = []
+                    for a_name in author_name.split(','):
+                        author_obj, _ = Author.objects.get_or_create(author_name=a_name.strip())
+                        author_objs.append(author_obj)
+                    obj.author.set(author_objs)
 
-            author_name = info.get("Author")
-            if author_name:
-                author_objs = []
-                for a_name in author_name.split(','):
-                    author_obj, _ = Author.objects.get_or_create(author_name=a_name.strip())
-                    author_objs.append(author_obj)
-                obj.author.set(author_objs)
+                publisher_name = info.get("Publisher")
+                if publisher_name:
+                    publisher_objs = []
+                    for p_name in publisher_name.split(','):
+                        publisher_obj, _ = Publisher.objects.get_or_create(publisher_name=p_name.strip())
+                        publisher_objs.append(publisher_obj)
+                    obj.publisher.set(publisher_objs)
 
-            publisher_name = info.get("Publisher")
-            if publisher_name:
-                publisher_objs = []
-                for p_name in publisher_name.split(','):
-                    publisher_obj, _ = Publisher.objects.get_or_create(publisher_name=p_name.strip())
-                    publisher_objs.append(publisher_obj)
-                obj.publisher.set(publisher_objs)
+                genre_names = info.get("Genres")
+                if genre_names:
+                    genre_objs = []
+                    for g_name in genre_names.split(','):
+                        genre_obj, _ = Genre.objects.get_or_create(gener_name=g_name.strip())
+                        genre_objs.append(genre_obj)
+                    obj.genres.set(genre_objs)
 
-            genre_names = info.get("Genres")
-            if genre_names:
-                genre_objs = []
-                for g_name in genre_names.split(','):
-                    genre_obj, _ = Genre.objects.get_or_create(gener_name=g_name.strip())
-                    genre_objs.append(genre_obj)
-                obj.genres.set(genre_objs)
-
-            obj.save()
+                WebsourceBook.objects.get_or_create(book=obj, url=base_url + url)
+                obj.save()
+                worker_status(base_url, "running", f'<a href="{base_url+url}" target="_blank">Книга успешно сохранена {base_url+url}</a>')
+        except Exception as e:
+            worker_status(base_url, "error", f'Ошибка {e} на <a href="{base_url+url}" target="_blank">книге</a>')
+    worker_status(base_url, "done", f'Обработка закончена')
+        
 
 
 
